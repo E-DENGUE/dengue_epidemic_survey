@@ -1,16 +1,27 @@
-library(shiny)
+library(dplyr)
 library(ggplot2)
-library(googlesheets4)
-gs4_auth()
+library(lubridate)
+library(shiny)
+#library(googlesheets4)
+#gs4_auth()
 
-# Sample data for plot
-data <- data.frame(
-  x = rnorm(100),
-  y = rnorm(100)
-)
+
+d1 <- readRDS('./Data/CONFIDENTIAL/Updated_full_data_with_new_boundaries_all_factors_cleaned.rds') %>%
+  dplyr::select(district, date, m_DHF_cases, pop) %>%
+  mutate(month=month(date),
+         year=year(date),
+         epiyr = if_else(month>=4, year, year-1)
+  ) %>%
+  group_by(district, epiyr) %>%
+  mutate(inc=m_DHF_cases/pop*100000,
+         n_obs=n()) %>%
+  filter(n_obs==12) %>%
+  mutate(graphID=cur_group_id()) %>%
+  ungroup() %>%
+  filter(graphID==1)
 
 # Define the Google Sheet ID or URL
-sheet_id <- "https://docs.google.com/spreadsheets/d/1Jns54VC2uZ1UouXumsX75y8EQfjug0ccfTTtR6YuT_k/edit?usp=sharing"
+#sheet_id <- "https://docs.google.com/spreadsheets/d/1Jns54VC2uZ1UouXumsX75y8EQfjug0ccfTTtR6YuT_k/edit?usp=sharing"
 
 # Define UI for application
 ui <- fluidPage(
@@ -37,8 +48,8 @@ ui <- fluidPage(
            div(
              class = "slider-container",
              sliderInput("range", "Select Range:",
-                         min = min(data$x), max = max(data$x), 
-                         value = c(min(data$x), max(data$x)), step = 0.1, width = '100%')
+                         min = min(d1$date), max = max(d1$date), 
+                         value = c(min(d1$date), max(d1$date)), step = 10, width = '100%')
            )
     )
   ),
@@ -55,10 +66,12 @@ ui <- fluidPage(
 server <- function(input, output) {
   
   output$plot <- renderPlot({
-    ggplot(data, aes(x = x, y = y)) +
-      geom_point() +
+    ggplot(d1,aes(x=date, y=inc))+
+      geom_line() +
+      theme_minimal() +
+      ylab('Dengue cases/100000 people')+
       geom_vline(xintercept = input$range, color = "red") +
-      ggtitle("ggplot with Interactive Sliders")
+      ylim(0,400)
   })
   
   output$rangeText <- renderText({
@@ -66,13 +79,13 @@ server <- function(input, output) {
   })
   
   observeEvent(input$saveButton, {
-    # Append the selected range to the Google Sheet
-    selected_range <- data.frame(Start = input$range[1], End = input$range[2], Timestamp = Sys.time())
-    sheet_append(sheet_id, selected_range)
+    # Save the selected range to a CSV file
+    selected_range <- data.frame(Start = input$range[1], End = input$range[2])
+    write.csv(selected_range, file = "selected_range.csv", row.names = FALSE)
     
     showModal(modalDialog(
       title = "Selection Saved",
-      "Your selection has been saved to the Google Sheet successfully!",
+      "Your selection has been saved successfully!",
       easyClose = TRUE,
       footer = NULL
     ))
